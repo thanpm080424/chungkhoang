@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dự Đoán Chứng Khoán VN</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            header: '#1e3a5f',
+                        },
+                        status: {
+                            buy: '#10b981',
+                            hold: '#f59e0b',
+                            sell: '#ef4444'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f3f4f6;
+        }
+        .progress-bar {
+            display: flex;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            background-color: #e5e7eb;
+        }
+        .progress-buy { background-color: #10b981; }
+        .progress-neutral { background-color: #f59e0b; }
+        .progress-sell { background-color: #ef4444; }
+        
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border-left-color: #1e3a5f;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <!-- Header -->
+    <header class="bg-brand-header text-white shadow-md">
+        <div class="container mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center">
+            <div class="flex items-center mb-4 md:mb-0">
+                <i class="fas fa-chart-line text-3xl mr-3 text-blue-300"></i>
+                <h1 class="text-2xl font-bold tracking-wide">Dự Đoán Chứng Khoán VN</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="text-sm text-gray-300">
+                    <i class="far fa-clock mr-1"></i> Cập nhật: <span id="lastUpdated">Chưa cập nhật</span>
+                </div>
+                <button id="refreshBtn" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded shadow transition duration-200 flex items-center">
+                    <i class="fas fa-sync-alt mr-2"></i> Làm mới
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        
+        <!-- Loading overlay -->
+        <div id="loadingOverlay" class="fixed inset-0 bg-white bg-opacity-75 z-50 flex flex-col items-center justify-center hidden">
+            <div class="spinner mb-4"></div>
+            <p class="text-lg font-semibold text-brand-header">Đang tải dữ liệu...</p>
+        </div>
+
+        <!-- Error Message -->
+        <div id="errorMessage" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 hidden" role="alert">
+            <p class="font-bold">Lỗi!</p>
+            <p id="errorText">Không thể tải dữ liệu từ API. Vui lòng thử lại sau.</p>
+        </div>
+
+        <!-- Dashboard Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" id="statsCards">
+            <!-- Total -->
+            <div class="bg-white rounded-lg shadow p-6 border-t-4 border-blue-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 font-semibold uppercase">Tổng số mã</p>
+                        <h2 class="text-3xl font-bold text-gray-800" id="statTotal">-</h2>
+                    </div>
+                    <div class="p-3 bg-blue-100 rounded-full text-blue-600">
+                        <i class="fas fa-list fa-lg"></i>
+                    </div>
+                </div>
+            </div>
+            <!-- Buy -->
+            <div class="bg-white rounded-lg shadow p-6 border-t-4 border-status-buy">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 font-semibold uppercase">Khuyến nghị MUA</p>
+                        <h2 class="text-3xl font-bold text-gray-800" id="statBuy">-</h2>
+                    </div>
+                    <div class="p-3 bg-green-100 rounded-full text-status-buy">
+                        <i class="fas fa-arrow-trend-up fa-lg"></i>
+                    </div>
+                </div>
+            </div>
+            <!-- Hold -->
+            <div class="bg-white rounded-lg shadow p-6 border-t-4 border-status-hold">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 font-semibold uppercase">Khuyến nghị GIỮ</p>
+                        <h2 class="text-3xl font-bold text-gray-800" id="statHold">-</h2>
+                    </div>
+                    <div class="p-3 bg-yellow-100 rounded-full text-status-hold">
+                        <i class="fas fa-minus fa-lg"></i>
+                    </div>
+                </div>
+            </div>
+            <!-- Sell -->
+            <div class="bg-white rounded-lg shadow p-6 border-t-4 border-status-sell">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 font-semibold uppercase">Khuyến nghị BÁN</p>
+                        <h2 class="text-3xl font-bold text-gray-800" id="statSell">-</h2>
+                    </div>
+                    <div class="p-3 bg-red-100 rounded-full text-status-sell">
+                        <i class="fas fa-arrow-trend-down fa-lg"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-bold mb-4 text-brand-header border-b pb-2">Tỷ Lệ Khuyến Nghị</h3>
+                <div class="relative h-64 w-full">
+                    <canvas id="ratioChart"></canvas>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 lg:col-span-2">
+                <h3 class="text-lg font-bold mb-4 text-brand-header border-b pb-2">Tín Hiệu Mua/Bán Theo Mã</h3>
+                <div class="relative h-64 w-full">
+                    <canvas id="signalsChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-bold text-brand-header">Chi Tiết Tín Hiệu</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-50 text-gray-600 text-sm uppercase">
+                            <th class="px-6 py-3 border-b border-gray-200 font-semibold">Mã CK</th>
+                            <th class="px-6 py-3 border-b border-gray-200 font-semibold text-right">Giá đóng cửa</th>
+                            <th class="px-6 py-3 border-b border-gray-200 font-semibold text-center">Khuyến nghị</th>
+                            <th class="px-6 py-3 border-b border-gray-200 font-semibold">Tín hiệu (Mua / Trung lập / Bán)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody" class="text-sm text-gray-700">
+                        <!-- Table rows will be inserted here by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-gray-400 py-6 mt-auto">
+        <div class="container mx-auto px-4 text-center">
+            <p class="mb-2"><i class="fas fa-exclamation-triangle text-yellow-500 mr-2"></i><strong>Khuyến cáo:</strong> Thông tin trên chỉ mang tính chất tham khảo. Không phải là lời khuyên đầu tư.</p>
+            <p class="text-sm">Nguồn dữ liệu phân tích kỹ thuật: <a href="https://vn.tradingview.com/" target="_blank" class="text-blue-400 hover:underline">TradingView</a>.</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        // Chart instances
+        let ratioChartInstance = null;
+        let signalsChartInstance = null;
+
+        // Formatter
+        const numberFormatter = new Intl.NumberFormat('vi-VN');
+
+        // Badge colors – ho tro ca tieng Anh lan tieng Viet tu API
+        const badgeColors = {
+            'MUA MANH': 'bg-green-100 text-green-800 border-green-200',
+            'MUA': 'bg-green-50 text-green-700 border-green-200',
+            'GIU': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+            'BAN': 'bg-red-50 text-red-700 border-red-200',
+            'BAN MANH': 'bg-red-100 text-red-800 border-red-200',
+            'STRONG_BUY': 'bg-green-100 text-green-800 border-green-200',
+            'BUY': 'bg-green-50 text-green-700 border-green-200',
+            'NEUTRAL': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+            'SELL': 'bg-red-50 text-red-700 border-red-200',
+            'STRONG_SELL': 'bg-red-100 text-red-800 border-red-200',
+            'MUA MẠNH': 'bg-green-100 text-green-800 border-green-200',
+            'GIỮ': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+            'BÁN': 'bg-red-50 text-red-700 border-red-200',
+            'BÁN MẠNH': 'bg-red-100 text-red-800 border-red-200'
+        };
+
+        // Map de hien thi dep hon tren giao dien
+        const recDisplayLabels = {
+            'MUA MANH': '🟢 MUA MẠNH',
+            'MUA': '🟢 MUA',
+            'GIU': '🟡 GIỮ',
+            'BAN': '🔴 BÁN',
+            'BAN MANH': '🔴 BÁN MẠNH',
+        };
+
+        function getRecommendationGroup(recommendation) {
+            if (recommendation.includes('MUA') || recommendation.includes('BUY')) return 'BUY';
+            if (recommendation.includes('BAN') || recommendation.includes('BÁN') || recommendation.includes('SELL')) return 'SELL';
+            return 'HOLD';
+        }
+
+        async function fetchData() {
+            showLoading(true);
+            hideError();
+            
+            try {
+                // Fetch data from API
+                const response = await fetch('/api/predictions');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const json = await response.json();
+                
+                if (json.status === 'success' && Array.isArray(json.data)) {
+                    updateDashboard(json.data);
+                } else {
+                    throw new Error('Định dạng dữ liệu không hợp lệ');
+                }
+            } catch (error) {
+                console.error("Lỗi lấy dữ liệu:", error);
+                showError("Không thể tải dữ liệu từ hệ thống. Chi tiết: " + error.message);
+                
+                // For demonstration/dev purposes if API is not available, we can uncomment below:
+                // loadMockData();
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function updateDashboard(data) {
+            // Update time
+            const now = new Date();
+            document.getElementById('lastUpdated').textContent = now.toLocaleTimeString('vi-VN') + ' ' + now.toLocaleDateString('vi-VN');
+
+            // Compute stats
+            let buyCount = 0, holdCount = 0, sellCount = 0;
+            
+            data.forEach(item => {
+                const group = getRecommendationGroup(item.recommendation);
+                if (group === 'BUY') buyCount++;
+                else if (group === 'SELL') sellCount++;
+                else holdCount++;
+            });
+
+            // Update cards
+            document.getElementById('statTotal').textContent = data.length;
+            document.getElementById('statBuy').textContent = buyCount;
+            document.getElementById('statHold').textContent = holdCount;
+            document.getElementById('statSell').textContent = sellCount;
+
+            // Render Charts
+            renderCharts(buyCount, holdCount, sellCount, data);
+
+            // Render Table
+            renderTable(data);
+        }
+
+        function renderCharts(buy, hold, sell, data) {
+            // 1. Doughnut Chart
+            const ctxRatio = document.getElementById('ratioChart').getContext('2d');
+            if (ratioChartInstance) ratioChartInstance.destroy();
+            
+            ratioChartInstance = new Chart(ctxRatio, {
+                type: 'doughnut',
+                data: {
+                    labels: ['MUA', 'GIỮ', 'BÁN'],
+                    datasets: [{
+                        data: [buy, hold, sell],
+                        backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    },
+                    cutout: '70%'
+                }
+            });
+
+            // 2. Horizontal Bar Chart (top 15 items to not clutter)
+            const chartData = data.slice(0, 15);
+            const labels = chartData.map(d => d.symbol);
+            const buySignals = chartData.map(d => d.buy_signals);
+            const sellSignals = chartData.map(d => d.sell_signals);
+
+            const ctxSignals = document.getElementById('signalsChart').getContext('2d');
+            if (signalsChartInstance) signalsChartInstance.destroy();
+
+            signalsChartInstance = new Chart(ctxSignals, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Tín hiệu Mua',
+                            data: buySignals,
+                            backgroundColor: '#10b981',
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Tín hiệu Bán',
+                            data: sellSignals,
+                            backgroundColor: '#ef4444',
+                            borderRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y', // horizontal bar
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    },
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true }
+                    }
+                }
+            });
+        }
+
+        function renderTable(data) {
+            const tbody = document.getElementById('dataTableBody');
+            tbody.innerHTML = '';
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Không có dữ liệu</td></tr>';
+                return;
+            }
+
+            data.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-gray-100 hover:bg-gray-50 transition-colors";
+                
+                // Format price
+                const priceFormatted = item.close_price ? numberFormatter.format(item.close_price) : '-';
+                
+                // Recommendation badge
+                const recClass = badgeColors[item.recommendation] || 'bg-gray-100 text-gray-800 border-gray-200';
+                const recLabel = recDisplayLabels[item.recommendation] || item.recommendation;
+
+                // Progress bar calcs
+                const totalSignals = (item.buy_signals || 0) + (item.neutral_signals || 0) + (item.sell_signals || 0);
+                let buyPct = 0, neuPct = 0, sellPct = 0;
+                
+                if (totalSignals > 0) {
+                    buyPct = ((item.buy_signals || 0) / totalSignals) * 100;
+                    neuPct = ((item.neutral_signals || 0) / totalSignals) * 100;
+                    sellPct = ((item.sell_signals || 0) / totalSignals) * 100;
+                }
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <a href="https://vn.tradingview.com/symbols/${item.symbol}/" target="_blank" class="font-bold text-blue-600 hover:text-blue-800 flex items-center">
+                            ${item.symbol} <i class="fas fa-external-link-alt text-xs ml-2 text-gray-400"></i>
+                        </a>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right font-medium">
+                        ${priceFormatted}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full border ${recClass}">
+                            ${recLabel}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="flex items-center space-x-3 w-full">
+                            <div class="text-xs text-green-600 font-semibold w-6 text-right">${item.buy_signals || 0}</div>
+                            <div class="flex-grow">
+                                <div class="progress-bar w-full">
+                                    <div class="progress-buy" style="width: ${buyPct}%"></div>
+                                    <div class="progress-neutral" style="width: ${neuPct}%"></div>
+                                    <div class="progress-sell" style="width: ${sellPct}%"></div>
+                                </div>
+                            </div>
+                            <div class="text-xs text-red-600 font-semibold w-6 text-left">${item.sell_signals || 0}</div>
+                            <div class="text-xs text-gray-500 hidden sm:inline w-12 text-center" title="Trung lập: ${item.neutral_signals || 0}">(${item.neutral_signals || 0})</div>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (show) {
+                overlay.classList.remove('hidden');
+            } else {
+                overlay.classList.add('hidden');
+            }
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('errorMessage');
+            const textEl = document.getElementById('errorText');
+            if (msg) {
+                textEl.textContent = msg;
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        }
+
+        function hideError() {
+            document.getElementById('errorMessage').classList.add('hidden');
+        }
+
+        // Add mock data function for testing if API is unavailable
+        function loadMockData() {
+            console.log("Loading mock data instead...");
+            const mockData = {
+                status: 'success',
+                data: [
+                    { symbol: 'FPT', recommendation: 'STRONG_BUY', buy_signals: 15, neutral_signals: 5, sell_signals: 2, close_price: 95500 },
+                    { symbol: 'VCB', recommendation: 'BUY', buy_signals: 12, neutral_signals: 8, sell_signals: 4, close_price: 90000 },
+                    { symbol: 'VNM', recommendation: 'NEUTRAL', buy_signals: 8, neutral_signals: 12, sell_signals: 8, close_price: 68500 },
+                    { symbol: 'VIC', recommendation: 'SELL', buy_signals: 3, neutral_signals: 7, sell_signals: 14, close_price: 45000 },
+                    { symbol: 'NVL', recommendation: 'STRONG_SELL', buy_signals: 1, neutral_signals: 3, sell_signals: 18, close_price: 16500 },
+                    { symbol: 'HPG', recommendation: 'BUY', buy_signals: 14, neutral_signals: 6, sell_signals: 3, close_price: 28000 },
+                    { symbol: 'SSI', recommendation: 'STRONG_BUY', buy_signals: 16, neutral_signals: 4, sell_signals: 1, close_price: 34500 }
+                ]
+            };
+            updateDashboard(mockData.data);
+        }
+
+        // Event Listeners
+        document.getElementById('refreshBtn').addEventListener('click', fetchData);
+
+        // Initial fetch on load
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+        });
+    </script>
+</body>
+</html>

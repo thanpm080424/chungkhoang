@@ -152,9 +152,16 @@
     <script>
     // ============ CẤU HÌNH ============
     const SYMBOLS = {
-        'FPT': 'FPT.VN', 'HPG': 'HPG.VN', 'VCB': 'VCB.VN', 'VIC': 'VIC.VN', 'VNM': 'VNM.VN',
-        'MWG': 'MWG.VN', 'TCB': 'TCB.VN', 'SSI': 'SSI.VN', 'VHM': 'VHM.VN', 'VPB': 'VPB.VN',
-        'MSN': 'MSN.VN', 'ACB': 'ACB.VN', 'GAS': 'GAS.VN', 'SAB': 'SAB.VN', 'CTG': 'CTG.VN'
+        // VN30
+        'ACB': 'ACB.VN', 'BCM': 'BCM.VN', 'BID': 'BID.VN', 'BVH': 'BVH.VN', 'CTG': 'CTG.VN',
+        'FPT': 'FPT.VN', 'GAS': 'GAS.VN', 'GVR': 'GVR.VN', 'HDB': 'HDB.VN', 'HPG': 'HPG.VN',
+        'KDH': 'KDH.VN', 'MBB': 'MBB.VN', 'MSN': 'MSN.VN', 'MWG': 'MWG.VN', 'PLX': 'PLX.VN',
+        'POW': 'POW.VN', 'SAB': 'SAB.VN', 'SHB': 'SHB.VN', 'SSB': 'SSB.VN', 'SSI': 'SSI.VN',
+        'STB': 'STB.VN', 'TCB': 'TCB.VN', 'TPB': 'TPB.VN', 'VCB': 'VCB.VN', 'VHM': 'VHM.VN',
+        'VIB': 'VIB.VN', 'VIC': 'VIC.VN', 'VJC': 'VJC.VN', 'VNM': 'VNM.VN', 'VPB': 'VPB.VN',
+        // Nổi bật khác
+        'VND': 'VND.VN', 'HCM': 'HCM.VN', 'VCI': 'VCI.VN', 'DGC': 'DGC.VN', 'NVL': 'NVL.VN',
+        'PDR': 'PDR.VN', 'DIG': 'DIG.VN', 'DXG': 'DXG.VN', 'HSG': 'HSG.VN', 'NKG': 'NKG.VN'
     };
 
     const CORS_PROXIES = [
@@ -320,20 +327,38 @@
 
         try {
             const entries = Object.entries(SYMBOLS);
-            const promises = entries.map(([name, ticker]) => fetchStockData(name, ticker));
-            const results = await Promise.allSettled(promises);
-            const data = results.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean);
+            let allData = [];
+            
+            // Chia nhỏ thành các nhóm 10 mã để không bị chặn proxy
+            const chunkSize = 10;
+            for (let i = 0; i < entries.length; i += chunkSize) {
+                const chunk = entries.slice(i, i + chunkSize);
+                
+                // Cập nhật thông báo
+                document.getElementById('loadingProgress').textContent = `Đang tải dữ liệu: ${Math.min(i + chunkSize, entries.length)}/${entries.length} mã...`;
+                
+                const promises = chunk.map(([name, ticker]) => fetchStockData(name, ticker));
+                const results = await Promise.allSettled(promises);
+                const data = results.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean);
+                allData = allData.concat(data);
+                
+                // Chờ 0.5s trước khi gọi chunk tiếp theo
+                if (i + chunkSize < entries.length) {
+                    await new Promise(r => setTimeout(r, 500));
+                }
+            }
 
-            if (data.length === 0) {
+            if (allData.length === 0) {
                 showError('Không thể tải dữ liệu. Vui lòng thử lại sau vài phút.');
                 return;
             }
 
-            updateDashboard(data);
+            updateDashboard(allData);
         } catch (e) {
             showError('Lỗi: ' + e.message);
         } finally {
             showLoading(false);
+            document.getElementById('loadingProgress').textContent = 'Vui lòng chờ 10-20 giây';
         }
     }
 

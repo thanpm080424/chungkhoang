@@ -351,6 +351,11 @@
                 } catch (e) {
                     console.error("Lỗi tải cụm " + (i+1) + ":", e);
                 }
+
+                // Nghỉ 2 giây trước khi gọi cụm tiếp theo để tránh proxy chặn vì spam
+                if (i < batches.length - 1) {
+                    await new Promise(r => setTimeout(r, 2000));
+                }
             }
 
             let allData = [];
@@ -400,6 +405,9 @@
             if (allData.length === 0) {
                 showError('Máy chủ từ chối kết nối. Vui lòng làm mới trang (F5) lại sau ít phút.');
                 return;
+            } else if (allData.length < tickers.length) {
+                showError(`Lưu ý: Chỉ tải được ${allData.length}/${tickers.length} mã do mạng bị nghẽn. Các phân tích dưới đây vẫn chính xác cho các mã đã tải.`);
+                // Vẫn tiếp tục updateDashboard với phần dữ liệu tải được
             }
 
             // Xếp hạng (sắp xếp) theo giá trị thay đổi % từ cao xuống thấp (tuỳ chọn)

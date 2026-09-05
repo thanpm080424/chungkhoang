@@ -151,8 +151,14 @@
 
         <!-- Data Table -->
         <div class="bg-white rounded-lg shadow overflow-hidden">
-            <div class="px-6 py-4 border-b border-gray-200">
+            <div class="px-6 py-4 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <h3 class="text-lg font-bold text-brand-header">Chi Tiết Phân Tích Kỹ Thuật</h3>
+                <div class="flex items-center space-x-4">
+                    <div class="relative">
+                        <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                        <input type="text" id="searchInput" placeholder="Tìm mã chứng khoán..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-64">
+                    </div>
+                </div>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
@@ -365,7 +371,6 @@
                 const meta = item.response[0].meta;
                 const ticker = meta.symbol;
                 
-                // Tìm tên hiển thị (ví dụ: FPT.VN -> FPT)
                 let displayName = ticker;
                 for (const [key, val] of Object.entries(SYMBOLS)) {
                     if (val === ticker) { displayName = key; break; }
@@ -375,7 +380,7 @@
                 if (!quote || !quote.close) continue;
                 
                 const closes = quote.close.filter(v => v !== null);
-                if (closes.length < 26) continue; // Phải có ít nhất 26 ngày để tính MACD
+                if (closes.length < 26) continue;
 
                 const close = meta.regularMarketPrice || closes[closes.length - 1];
                 const prevClose = meta.chartPreviousClose || closes[closes.length - 2];
@@ -383,7 +388,6 @@
                 let changePct = meta.regularMarketChangePercent;
                 if (changePct === undefined) changePct = (change / prevClose) * 100;
 
-                // Tính toán AI
                 const aiResult = customAIPrediction(closes);
                 const projectedChangePct = ((aiResult.nextPrice - close) / close) * 100;
 
@@ -407,11 +411,17 @@
                 return;
             } else if (allData.length < tickers.length) {
                 showError(`Lưu ý: Chỉ tải được ${allData.length}/${tickers.length} mã do mạng bị nghẽn. Các phân tích dưới đây vẫn chính xác cho các mã đã tải.`);
-                // Vẫn tiếp tục updateDashboard với phần dữ liệu tải được
             }
 
-            // Xếp hạng (sắp xếp) theo giá trị thay đổi % từ cao xuống thấp (tuỳ chọn)
-            // allData.sort((a, b) => b.change_pct - a.change_pct);
+            // MẶC ĐỊNH: Xếp hạng danh sách từ Khuyến nghị MUA MẠNH -> BÁN MẠNH (Dựa vào AI Score và Lợi nhuận dự phóng)
+            allData.sort((a, b) => {
+                if (b.ai_score !== a.ai_score) return b.ai_score - a.ai_score;
+                return b.projected_change_pct - a.projected_change_pct;
+            });
+
+            // Lưu Cache
+            localStorage.setItem('stockDataCache', JSON.stringify(allData));
+            localStorage.setItem('stockDataCacheTime', new Date().getTime().toString());
 
             updateDashboard(allData);
         } catch (e) {
@@ -421,6 +431,34 @@
             document.getElementById('loadingProgress').textContent = 'Vui lòng chờ...';
         }
     }
+
+    async function loadWithCache() {
+        const cached = localStorage.getItem('stockDataCache');
+        const cachedTime = localStorage.getItem('stockDataCacheTime');
+        const now = new Date().getTime();
+        
+        // Cache có giá trị trong 5 phút (300,000 ms)
+        if (cached && cachedTime && (now - parseInt(cachedTime) < 300000)) {
+            try {
+                const allData = JSON.parse(cached);
+                updateDashboard(allData);
+                showLoading(false);
+                return; // Không cần tải lại nếu cache còn hạn
+            } catch (e) {}
+        }
+        await loadAllData();
+    }
+
+    // Gắn sự kiện Tìm kiếm
+    document.getElementById('searchInput').addEventListener('input', function(e) {
+        const term = e.target.value.toLowerCase();
+        const rows = document.querySelectorAll('#dataTableBody tr');
+        rows.forEach(row => {
+            const symbol = row.querySelector('td:first-child').textContent.toLowerCase();
+            if (symbol.includes(term)) row.style.display = '';
+            else row.style.display = 'none';
+        });
+    });
 
     // ============ CẬP NHẬT GIAO DIỆN ============
     function renderTopPick(data) {
@@ -587,8 +625,7 @@
     function showError(msg) { document.getElementById('errorText').textContent = msg; document.getElementById('errorMessage').classList.remove('hidden'); }
     function hideError() { document.getElementById('errorMessage').classList.add('hidden'); }
 
-    // ============ KHỞI CHẠY ============
-    document.addEventListener('DOMContentLoaded', loadAllData);
-    </script>
+    window.onload = loadWithCache;
+</script>
 </body>
 </html>

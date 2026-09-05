@@ -169,7 +169,8 @@
 
     const CORS_PROXIES = [
         'https://api.allorigins.win/raw?url=',
-        'https://corsproxy.io/?',
+        'https://api.codetabs.com/v1/proxy?quest=',
+        'https://corsproxy.io/?'
     ];
 
     let ratioChartInstance = null;
@@ -282,7 +283,9 @@
 
     // ============ LẤY DỮ LIỆU TỪ YAHOO FINANCE ============
     async function fetchWithProxy(url) {
-        for (const proxy of CORS_PROXIES) {
+        // Trộn ngẫu nhiên proxy để phân tán kết nối, tránh bị chặn
+        const proxies = [...CORS_PROXIES].sort(() => 0.5 - Math.random());
+        for (const proxy of proxies) {
             try {
                 const resp = await fetch(proxy + encodeURIComponent(url), { signal: AbortSignal.timeout(15000) });
                 if (resp.ok) return await resp.json();
@@ -359,27 +362,30 @@
             const entries = Object.entries(SYMBOLS);
             let allData = [];
             
-            // Chia nhỏ thành các nhóm 10 mã để không bị chặn proxy
-            const chunkSize = 10;
+            // Chia nhỏ thành các nhóm 3 mã (thay vì 10) để tuyệt đối không bị chặn
+            const chunkSize = 3;
             for (let i = 0; i < entries.length; i += chunkSize) {
                 const chunk = entries.slice(i, i + chunkSize);
                 
                 // Cập nhật thông báo
-                document.getElementById('loadingProgress').textContent = `Đang tải dữ liệu: ${Math.min(i + chunkSize, entries.length)}/${entries.length} mã...`;
+                document.getElementById('loadingProgress').textContent = `Đang phân tích dữ liệu: ${Math.min(i + chunkSize, entries.length)}/${entries.length} mã...`;
                 
-                const promises = chunk.map(([name, ticker]) => fetchStockData(name, ticker));
-                const results = await Promise.allSettled(promises);
-                const data = results.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean);
+                const promises = chunk.map(async ([name, ticker]) => {
+                    return await fetchStockData(name, ticker);
+                });
+                
+                const results = await Promise.all(promises);
+                const data = results.filter(Boolean); // Lọc bỏ các mã bị lỗi
                 allData = allData.concat(data);
                 
-                // Chờ 0.5s trước khi gọi chunk tiếp theo
+                // Chờ 1 giây trước khi gọi chunk tiếp theo để proxy không báo DDoS
                 if (i + chunkSize < entries.length) {
-                    await new Promise(r => setTimeout(r, 500));
+                    await new Promise(r => setTimeout(r, 1000));
                 }
             }
 
             if (allData.length === 0) {
-                showError('Không thể tải dữ liệu. Vui lòng thử lại sau vài phút.');
+                showError('Máy chủ từ chối kết nối. Vui lòng làm mới trang (F5) lại sau ít phút.');
                 return;
             }
 
@@ -388,7 +394,7 @@
             showError('Lỗi: ' + e.message);
         } finally {
             showLoading(false);
-            document.getElementById('loadingProgress').textContent = 'Vui lòng chờ 10-20 giây';
+            document.getElementById('loadingProgress').textContent = 'Vui lòng chờ...';
         }
     }
 

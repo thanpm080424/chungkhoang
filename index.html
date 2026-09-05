@@ -294,100 +294,84 @@
         throw new Error('All proxies failed');
     }
 
-    async function fetchStockData(displayName, ticker) {
-        try {
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=3mo&interval=1d`;
-            const json = await fetchWithProxy(url);
-            const result = json.chart.result[0];
-            const closes = result.indicators.quote[0].close.filter(v => v !== null);
-            const opens = result.indicators.quote[0].open;
-            const highs = result.indicators.quote[0].high;
-            const lows = result.indicators.quote[0].low;
-            const volumes = result.indicators.quote[0].volume;
-
-            if (closes.length < 26) return null;
-
-            const lastIdx = closes.length - 1;
-            const close = closes[lastIdx];
-            const prevClose = closes[lastIdx - 1];
-            const change = close - prevClose;
-            const changePct = (change / prevClose) * 100;
-
-            const sma20 = calcSMA(closes, 20);
-            const ema20 = calcEMA(closes, 20);
-            const rsi = calcRSI(closes, 14);
-            const { macd, signal } = calcMACD(closes);
-
-            const rsiVal = rsi[lastIdx];
-            const macdVal = macd[lastIdx];
-            const signalVal = signal[lastIdx];
-            const sma20Val = sma20[lastIdx];
-            const ema20Val = ema20[lastIdx];
-
-            // AI Model tính toán dự báo
-            const aiResult = customAIPrediction(closes);
-            const total = aiResult.buy + aiResult.sell + aiResult.neutral;
-
-            return {
-                symbol: displayName,
-                close_price: Math.round(close),
-                predicted_price: Math.round(aiResult.nextPrice),
-                change: Math.round(change),
-                change_pct: Math.round(changePct * 100) / 100,
-                volume: volumes[volumes.length - 1] || 0,
-                recommendation: aiResult.rec,
-                buy_signals: aiResult.buy,
-                sell_signals: aiResult.sell,
-                neutral_signals: aiResult.neutral,
-                buy_pct: total > 0 ? Math.round(aiResult.buy / total * 1000) / 10 : 0,
-                sell_pct: total > 0 ? Math.round(aiResult.sell / total * 1000) / 10 : 0,
-                neutral_pct: total > 0 ? Math.round(aiResult.neutral / total * 1000) / 10 : 0,
-                rsi: rsiVal ? Math.round(rsiVal * 100) / 100 : null,
-                macd: macdVal ? Math.round(macdVal * 100) / 100 : null,
-                sma20: sma20Val ? Math.round(sma20Val * 100) / 100 : null,
-                ema20: ema20Val ? Math.round(ema20Val * 100) / 100 : null,
-            };
-        } catch (e) {
-            console.error(`Error fetching ${displayName}:`, e);
-            return null;
-        }
-    }
-
-    // ============ LOAD TẤT CẢ DỮ LIỆU ============
+    // ============ LOAD TẤT CẢ DỮ LIỆU BẰNG BATCH ============
     async function loadAllData() {
         showLoading(true);
         hideError();
 
         try {
             const entries = Object.entries(SYMBOLS);
-            let allData = [];
+            const tickers = entries.map(e => e[1]);
             
-            // Chia nhỏ thành các nhóm 3 mã (thay vì 10) để tuyệt đối không bị chặn
-            const chunkSize = 3;
-            for (let i = 0; i < entries.length; i += chunkSize) {
-                const chunk = entries.slice(i, i + chunkSize);
+            // Yahoo giới hạn tối đa 20 mã mỗi request -> Chia thành các nhóm 20 mã
+            const batches = [];
+            for (let i = 0; i < tickers.length; i += 20) {
+                batches.push(tickers.slice(i, i + 20));
+            }
+
+            let allResults = [];
+            for(let i = 0; i < batches.length; i++) {
+                document.getElementById('loadingProgress').textContent = `Đang tải: Cụm ${i+1}/${batches.length}...`;
                 
-                // Cập nhật thông báo
-                document.getElementById('loadingProgress').textContent = `Đang phân tích dữ liệu: ${Math.min(i + chunkSize, entries.length)}/${entries.length} mã...`;
-                
-                const promises = chunk.map(async ([name, ticker]) => {
-                    return await fetchStockData(name, ticker);
-                });
-                
-                const results = await Promise.all(promises);
-                const data = results.filter(Boolean); // Lọc bỏ các mã bị lỗi
-                allData = allData.concat(data);
-                
-                // Chờ 1 giây trước khi gọi chunk tiếp theo để proxy không báo DDoS
-                if (i + chunkSize < entries.length) {
-                    await new Promise(r => setTimeout(r, 1000));
+                const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${batches[i].join(',')}&range=3mo&interval=1d`;
+                try {
+                    const json = await fetchWithProxy(url);
+                    if (json && json.spark && json.spark.result) {
+                        allResults = allResults.concat(json.spark.result);
+                    }
+                } catch (e) {
+                    console.error("Lỗi tải cụm " + (i+1) + ":", e);
                 }
+            }
+
+            let allData = [];
+            for (const item of allResults) {
+                if (!item || !item.response || item.response.length === 0) continue;
+                
+                const meta = item.response[0].meta;
+                const ticker = meta.symbol;
+                
+                // Tìm tên hiển thị (ví dụ: FPT.VN -> FPT)
+                let displayName = ticker;
+                for (const [key, val] of Object.entries(SYMBOLS)) {
+                    if (val === ticker) { displayName = key; break; }
+                }
+
+                const quote = item.response[0].indicators?.quote?.[0];
+                if (!quote || !quote.close) continue;
+                
+                const closes = quote.close.filter(v => v !== null);
+                if (closes.length < 26) continue; // Phải có ít nhất 26 ngày để tính MACD
+
+                const close = meta.regularMarketPrice || closes[closes.length - 1];
+                const prevClose = meta.chartPreviousClose || closes[closes.length - 2];
+                const change = close - prevClose;
+                let changePct = meta.regularMarketChangePercent;
+                if (changePct === undefined) changePct = (change / prevClose) * 100;
+
+                // Tính toán AI
+                const aiResult = customAIPrediction(closes);
+
+                allData.push({
+                    symbol: displayName,
+                    close_price: Math.round(close),
+                    predicted_price: Math.round(aiResult.nextPrice),
+                    change: Math.round(change),
+                    change_pct: Math.round(changePct * 100) / 100,
+                    recommendation: aiResult.rec,
+                    buy_signals: aiResult.buy,
+                    sell_signals: aiResult.sell,
+                    neutral_signals: aiResult.neutral
+                });
             }
 
             if (allData.length === 0) {
                 showError('Máy chủ từ chối kết nối. Vui lòng làm mới trang (F5) lại sau ít phút.');
                 return;
             }
+
+            // Xếp hạng (sắp xếp) theo giá trị thay đổi % từ cao xuống thấp (tuỳ chọn)
+            // allData.sort((a, b) => b.change_pct - a.change_pct);
 
             updateDashboard(allData);
         } catch (e) {

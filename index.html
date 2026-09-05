@@ -279,7 +279,7 @@
         return slope * period + intercept; // Dự báo ngày tiếp theo
     }
 
-    function customAIPrediction(closes) {
+    function customAIPrediction(closes, rsiVal) {
         const currentPrice = closes[closes.length - 1];
         
         // 1. Hồi quy tuyến tính (Dự đoán giá T+1 dựa trên 14 phiên)
@@ -303,6 +303,20 @@
         if (momentum > 0 && dev < 0.05) score += 2;
         else if (dev >= 0.05) score -= 2;
         else if (dev <= -0.05) score += 2;
+
+        // 4. KIỂM SOÁT RỦI RO (Dựa trên RSI)
+        // Ngăn chặn việc mua đuổi (FOMO) khi giá đã tăng quá nóng
+        if (rsiVal !== undefined && rsiVal !== null) {
+            if (rsiVal >= 70) {
+                score -= 4; // Rủi ro đu đỉnh rất cao (Quá mua) -> Ép bán hoặc giữ
+            } else if (rsiVal >= 60) {
+                score -= 2; // Rủi ro điều chỉnh cao
+            } else if (rsiVal <= 30) {
+                score += 3; // Cơ hội bắt đáy (Quá bán)
+            } else if (rsiVal <= 45) {
+                score += 1; // Vùng giá an toàn
+            }
+        }
         
         let rec = 'GIỮ';
         let buy = 0, sell = 0, neutral = 0;
@@ -388,7 +402,12 @@
                 let changePct = meta.regularMarketChangePercent;
                 if (changePct === undefined) changePct = (change / prevClose) * 100;
 
-                const aiResult = customAIPrediction(closes);
+                // Tính toán RSI để AI kiểm soát rủi ro
+                const rsiArray = calcRSI(closes, 14);
+                const rsiVal = rsiArray[rsiArray.length - 1];
+
+                // Tính toán AI
+                const aiResult = customAIPrediction(closes, rsiVal);
                 const projectedChangePct = ((aiResult.nextPrice - close) / close) * 100;
 
                 allData.push({

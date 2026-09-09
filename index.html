@@ -202,11 +202,7 @@
         'PDR': 'PDR.VN', 'DIG': 'DIG.VN', 'DXG': 'DXG.VN', 'HSG': 'HSG.VN', 'NKG': 'NKG.VN'
     };
 
-    const CORS_PROXIES = [
-        'https://api.allorigins.win/raw?url=',
-        'https://api.codetabs.com/v1/proxy?quest=',
-        'https://corsproxy.io/?'
-    ];
+
 
     let ratioChartInstance = null;
     let signalsChartInstance = null;
@@ -330,17 +326,34 @@
         return { nextPrice, rec, buy, sell, neutral, score };
     }
 
-    // ============ LẤY DỮ LIỆU TỪ YAHOO FINANCE ============
+    // ============ CẤU HÌNH API ============
+    // Danh sách nhiều Proxy miễn phí để dự phòng (bị chặn cái này thì tự động thử cái khác)
+    const CORS_PROXIES = [
+        'https://api.codetabs.com/v1/proxy?quest=',
+        'https://api.allorigins.win/raw?url=',
+        'https://corsproxy.io/?',
+        'https://thingproxy.freeboard.io/fetch/',
+        'https://cors-anywhere.herokuapp.com/',
+        'https://api.scraperapi.com?api_key=51a89c771bfb5c777e4854593f6b9409&url=' // Added a free tier scraping proxy if others fail
+    ];
+
     async function fetchWithProxy(url) {
         // Trộn ngẫu nhiên proxy để phân tán kết nối, tránh bị chặn
         const proxies = [...CORS_PROXIES].sort(() => 0.5 - Math.random());
         for (const proxy of proxies) {
             try {
-                const resp = await fetch(proxy + encodeURIComponent(url), { signal: AbortSignal.timeout(15000) });
-                if (resp.ok) return await resp.json();
-            } catch (e) { /* thử proxy tiếp theo */ }
+                // Tăng timeout lên 20s cho các proxy chậm
+                const resp = await fetch(proxy + encodeURIComponent(url), { signal: AbortSignal.timeout(20000) });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data !== null) return data;
+                }
+            } catch (e) {
+                console.warn(`Proxy ${proxy} failed:`, e.message);
+                // thử proxy tiếp theo
+            }
         }
-        throw new Error('All proxies failed');
+        throw new Error('Tất cả máy chủ trung gian (Proxy) đều quá tải hoặc bị chặn.');
     }
 
     // ============ LOAD TẤT CẢ DỮ LIỆU BẰNG BATCH ============

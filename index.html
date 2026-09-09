@@ -326,70 +326,18 @@
         return { nextPrice, rec, buy, sell, neutral, score };
     }
 
-    // ============ CẤU HÌNH API ============
-    // Danh sách nhiều Proxy miễn phí để dự phòng (bị chặn cái này thì tự động thử cái khác)
-    const CORS_PROXIES = [
-        'https://api.codetabs.com/v1/proxy?quest=',
-        'https://api.allorigins.win/raw?url=',
-        'https://corsproxy.io/?',
-        'https://thingproxy.freeboard.io/fetch/',
-        'https://cors-anywhere.herokuapp.com/',
-        'https://api.scraperapi.com?api_key=51a89c771bfb5c777e4854593f6b9409&url=' // Added a free tier scraping proxy if others fail
-    ];
-
-    async function fetchWithProxy(url) {
-        // Trộn ngẫu nhiên proxy để phân tán kết nối, tránh bị chặn
-        const proxies = [...CORS_PROXIES].sort(() => 0.5 - Math.random());
-        for (const proxy of proxies) {
-            try {
-                // Tăng timeout lên 20s cho các proxy chậm
-                const resp = await fetch(proxy + encodeURIComponent(url), { signal: AbortSignal.timeout(20000) });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    if (data !== null) return data;
-                }
-            } catch (e) {
-                console.warn(`Proxy ${proxy} failed:`, e.message);
-                // thử proxy tiếp theo
-            }
-        }
-        throw new Error('Tất cả máy chủ trung gian (Proxy) đều quá tải hoặc bị chặn.');
-    }
-
-    // ============ LOAD TẤT CẢ DỮ LIỆU BẰNG BATCH ============
+    // ============ LẤY DỮ LIỆU (TỪ GITHUB ACTIONS) ============
     async function loadAllData() {
         showLoading(true);
         hideError();
+        document.getElementById('loadingProgress').textContent = 'Đang lấy dữ liệu mới nhất...';
 
         try {
-            const entries = Object.entries(SYMBOLS);
-            const tickers = entries.map(e => e[1]);
-            
-            // Yahoo giới hạn tối đa 20 mã mỗi request -> Chia thành các nhóm 20 mã
-            const batches = [];
-            for (let i = 0; i < tickers.length; i += 20) {
-                batches.push(tickers.slice(i, i + 20));
-            }
-
-            let allResults = [];
-            for(let i = 0; i < batches.length; i++) {
-                document.getElementById('loadingProgress').textContent = `Đang tải: Cụm ${i+1}/${batches.length}...`;
-                
-                const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${batches[i].join(',')}&range=3mo&interval=1d`;
-                try {
-                    const json = await fetchWithProxy(url);
-                    if (json && json.spark && json.spark.result) {
-                        allResults = allResults.concat(json.spark.result);
-                    }
-                } catch (e) {
-                    console.error("Lỗi tải cụm " + (i+1) + ":", e);
-                }
-
-                // Nghỉ 2 giây trước khi gọi cụm tiếp theo để tránh proxy chặn vì spam
-                if (i < batches.length - 1) {
-                    await new Promise(r => setTimeout(r, 2000));
-                }
-            }
+            // Thay vì dùng Proxy lấy từ Yahoo Finance, chúng ta đọc trực tiếp file data.json 
+            // được GitHub Actions cập nhật tự động mỗi 15 phút. (Bypass 100% lỗi CORS)
+            const resp = await fetch('./data.json?v=' + new Date().getTime());
+            if (!resp.ok) throw new Error('Không thể tải dữ liệu JSON.');
+            const allResults = await resp.json();
 
             let allData = [];
             for (const item of allResults) {
@@ -441,8 +389,8 @@
             if (allData.length === 0) {
                 showError('Máy chủ từ chối kết nối. Vui lòng làm mới trang (F5) lại sau ít phút.');
                 return;
-            } else if (allData.length < tickers.length) {
-                showError(`Lưu ý: Chỉ tải được ${allData.length}/${tickers.length} mã do mạng bị nghẽn. Các phân tích dưới đây vẫn chính xác cho các mã đã tải.`);
+            } else if (allData.length < Object.keys(SYMBOLS).length) {
+                showError(`Lưu ý: Chỉ tải được ${allData.length}/${Object.keys(SYMBOLS).length} mã do mạng bị nghẽn. Các phân tích dưới đây vẫn chính xác cho các mã đã tải.`);
             }
 
             // MẶC ĐỊNH: Xếp hạng danh sách từ Khuyến nghị MUA MẠNH -> BÁN MẠNH (Dựa vào AI Score và Lợi nhuận dự phóng)
